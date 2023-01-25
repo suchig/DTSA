@@ -1,0 +1,96 @@
+---
+title: "NYPD"
+author: "Anonymous"
+date: "2023-01-09"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## NYPD Shooting Incidents Analysis
+This is analysis of NYPD Shooting Incident Data. The objective of this exercise is to analyze the data and try to answer some questions
+
+* Is the shooting focused on any specific area?
+* Is there any trend to the shooting? Does it increase or decrease with time?
+* Are we able to identify the root cause? Is this information sufficient?
+
+Load all libraries
+```{r load, echo=TRUE}
+library(tidyverse)
+library(tinytex)
+library(lubridate) 
+```
+
+### Read data
+We start by reading data. Data is provided by City of New York. 
+```{r read, echo=TRUE}
+nypd_data <- read_csv("https://data.cityofnewyork.us/api/views/833y-fsy8/rows.csv?accessType=DOWNLOAD")
+```
+
+### List columns
+Here are the list of columns and their attributes are below. Shooting incidences are categorized by date, BORO (region of New York). Race, Sex and Age group of Perpetrator and Victim is also noted. Classification if the incidence resulted in murder or not is also denoted by a flag. There are other columns like Latitude, Longitde, coordinates etc to pinpoint the incidence in more detail
+```{r summary1, echo=TRUE}
+summary(nypd_data)
+```
+
+### Tidying and Transforming
+**Removing columns**: The following columns will be removed from nypd_data since these are not going to be used in the following analysis 
+X_COORD_CD, Y_COORD_CD, Latitude, Longitude, Lon_Lat, LOCATION_DESC, PRECINCT, JURISDICTION_CODE) 
+
+**Factoring**: Apart from this all character based fields are factored for easier analysis
+
+```{r tidy1, echo=TRUE}
+nypd_data = nypd_data %>% select(-c(X_COORD_CD, Y_COORD_CD, Latitude, Longitude, Lon_Lat, LOCATION_DESC, PRECINCT, JURISDICTION_CODE)) %>% mutate(OCCUR_DATE = mdy(OCCUR_DATE))
+nypd_data <- nypd_data %>% mutate(across(where(is.character), factor))
+summary(nypd_data)
+
+```
+**Missing data**: We do see missing data as NAs in PERP_AGE_GROUP, PERP_SEX, PERP_RACE, VIC_AGE_GROUP, VIC_SEX, VIC_RACE. This will not be removed or imputed because my analysis will be based on BORO and OCCUR_DATE. I am not removing other columns just in case I want to do some analysis in future
+
+### Visualization 1
+I am very interested in understanding the timeline or trend of these incidents. Are they increasing or decreasing by year? 
+In order to get a yearly view, YEAR column is introduced in nypd_data. From this, a year based dataframe is created that includes total incidents by year. 
+```{r visual1, echo=TRUE}
+nypd_data <- nypd_data %>% mutate(YEAR = year(OCCUR_DATE))
+nypd_yearly_data <- nypd_data %>% group_by(YEAR) %>% count(YEAR) %>%
+                      rename(INCIDENTS = n)
+nypd_yearly_data %>% ggplot(aes(x=YEAR), y=INCIDENTS) + geom_line(aes(y=INCIDENTS, color = "INCIDENTS")) + labs(title = "Incidents per YEAR")
+```
+
+**Analysis**: This visual shows decrease of incidents by year especially after 2010. But then there is a sudden increase around 2020. Could it be possible that COVID had an impact on people's mental health and economical stability that there was an increase in shooting incdents?
+
+### Visualization 2
+Is this the same trend we see across BOROs? What if the data is different for BOROs and COVID impact was only in certain areas?
+To answer this, a dataframe that groups incidents by BORO and YEAR is created and visualized
+```{r visual2, echo=TRUE}
+nypd_boro_yearly_data <- nypd_data %>% group_by(YEAR, BORO) %>% count(YEAR,BORO) %>% rename(INCIDENTS = n)
+nypd_boro_yearly_data %>% ggplot(aes(x=YEAR), y=INCIDENTS) + geom_line(aes(y=INCIDENTS, color = BORO)) + labs(title = "Incidents per YEAR by BORO")
+```
+
+**Analysis**: There indeed seems to be a spike in almost all BOROs from 2020 except Staten Island. The biggest impact seems to have been in BRONX where it rose to a level that was not seen for the last 20 years. In Brooklyn things seemed to be declining as well after 2020.
+
+### Modeling
+It will be interesting to find out if a specific BORO has more importance on the number of incidences. In order to identify this significance, a linear regression model is created to find the cooeficients of BORO values on incidences. In order to do this, new dataframe is created with number of incidences
+```{r model, echo=TRUE}
+nypd_trim_data <- nypd_data %>% group_by(OCCUR_DATE,BORO,PERP_AGE_GROUP, PERP_SEX, PERP_RACE, VIC_AGE_GROUP, VIC_SEX, VIC_RACE) %>% count(OCCUR_DATE,BORO,PERP_AGE_GROUP, PERP_SEX, PERP_RACE, VIC_AGE_GROUP, VIC_SEX, VIC_RACE) %>% rename(INCIDENTS = n)
+
+nypd_model <- lm(INCIDENTS ~ BORO, data = nypd_trim_data)
+
+summary(nypd_model)
+```
+
+**Analysis**: Since BORO is a factor, the first BORO that is BRONX is considered as Intercept. **Note that this was something I had to dig and find out because I was confused why BRONX was not showing up**. It is clear from p-values that BRONX, BROOKLYN and MANHATTAN maybe having similar impact on number of incidences. That is a person being in these BOROs could make a difference to the number of incidences.
+
+### Bias
+When I saw this subject, I wanted to avoid any inference based on Race to avoid any internal biases that I might have. Also, I avoided using any data that could have missing information or Unknown data since more bias could be introduced owing to the same. During some internal analysis, I did observe not defining Perpetrator Sex (Unknown) actually could lead to misleading information. Also, the linear regression model's interpretation based on such simple data may not show the entire picture. More complex features and data need to be added to remove disturbing noises from interpretations. For instance adding proper perpertrator and victim information could give more insightful information. However, we need more clear data for the same.
+
+### Summary
+It will be a great addition if this data could be analyzed along with other data like COVID incidences by BORO, Job fluctations by BORO, Education level of perpetrator/victim, population density of these locations. This may give a better perspective of the situation and remove potential bias.
+
+```{r session, echo=TRUE}
+sessionInfo()
+```
